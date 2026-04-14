@@ -1,5 +1,5 @@
 """
-Mouse/Keyboard → Xbox 360 Controller Mapper
+Mouse/Keyboard to Xbox 360 Controller Mapper
 ============================================
 Requires:
   1. pip install vgamepad
@@ -21,19 +21,25 @@ import argparse
 import vgamepad as vg
 from interception import interception, key_stroke, mouse_stroke
 
-# ==========================================
-# 1. DEFAULT FALLBACK SETTINGS
-# ==========================================
-
 DEFAULT_SETTINGS = {
-    "min_output_base": 100,
-    "min_output_max": 5000,
-    "transition_speed": 6000,
-    "input_smoothing": 0.4,
-    "output_smoothing": 3,
-    "curve_exponent": 1.005,
-    "sens_x": 600,
-    "sens_y": 600,
+    # The inner deadzone of the game.
+    "game_deadzone": 7000,
+
+    # Sensitivity normalization.
+    "max_velocity": 20000.0,
+
+    # Non-linear curve. 1.0 = linear. >1.0 = finer control for small movements but more resistance.
+    "curve_exponent": 1.0,
+
+    # Smoothing (0.0 to 0.99). High values reduce jitter but add latency.
+    "input_smoothing": 0.5,
+    "output_smoothing": 0.5,
+
+    # Snaps stick to zero if no movement occurs within this window (ms).
+    "noise_filter_ms": 15.0,
+
+    "sens_x": 100,
+    "sens_y": 100,
 }
 
 BTN_MAP = {
@@ -62,21 +68,18 @@ MOUSE_FLAGS = {
 
 KEY_DOWN, KEY_UP, KEY_E0_DOWN, KEY_E0_UP = 0x00, 0x01, 0x02, 0x03
 
-# ==========================================
-# 2. SHARED STATE & PROFILE LOADING
-# ==========================================
-
 _state_lock = threading.Lock()
 _vgamepad_lock = threading.Lock()
 
 override_active = False
-target_vel_x = 0.0
-target_vel_y = 0.0
+accumulated_dx = 0.0
+accumulated_dy = 0.0
 last_mouse_time = time.perf_counter()
 active_keys = set()
 
 gamepad = vg.VX360Gamepad()
 
+# Load profile and settings
 parser = argparse.ArgumentParser()
 parser.add_argument("--profile", default="default")
 args = parser.parse_args()
@@ -86,125 +89,132 @@ if os.path.exists("profiles.json"):
     with open("profiles.json", "r") as f:
         PROFILES = json.load(f)
 
-# Get selected profile or fallback to default
 profile_name = args.profile.lower()
 current_profile = PROFILES.get(profile_name, PROFILES.get("default", {}))
 
-# Load settings from profile and merge with hardcoded defaults
 SETTINGS = DEFAULT_SETTINGS.copy()
 SETTINGS.update(current_profile.get("settings", {}))
 
-# Load mapping configs
 key_profile = current_profile.get("key_profile", {})
 combo_cfg = current_profile.get("combos", {})
 mouse_cfg = current_profile.get("mouse_buttons", {})
 move_cfg = current_profile.get("movement", {})
 
 print(f"Loaded profile: {profile_name}")
-print(f"Sensitivity: X:{SETTINGS['sens_x']} Y:{SETTINGS['sens_y']}")
-
-# ==========================================
-# 3. CORE LOGIC
-# ==========================================
 
 
 def apply_action(action: str, is_down: bool):
     with _vgamepad_lock:
         if action in BTN_MAP:
             btn = BTN_MAP[action]
-            if is_down:
-                gamepad.press_button(button=btn)
-            else:
-                gamepad.release_button(button=btn)
+            gamepad.press_button(
+                button=btn) if is_down else gamepad.release_button(button=btn)
         elif action == "RIGHT_TRIGGER":
             gamepad.right_trigger(value=255 if is_down else 0)
         elif action == "LEFT_TRIGGER":
             gamepad.left_trigger(value=255 if is_down else 0)
 
 
-def calculate_joystick_natural(vx: float, vy: float):
-    # 1. Sensitivity
-    sx = (vx * (SETTINGS["sens_x"] / 5000.0) * 32768)
-    sy = (-vy * (SETTINGS["sens_y"] / 5000.0) * 32768)
+def calculate_joystick_advanced(vx: float, vy: float):
+    """Translates velocity (mickeys/sec) into joystick deflection."""
+    vx_sens = vx * (SETTINGS["sens_x"] / 100.0)
+    vy_sens = vy * (SETTINGS["sens_y"] / 100.0)
 
-    magnitude = math.sqrt(sx**2 + sy**2)
-    if magnitude < 0.001:
+    magnitude = math.sqrt(vx_sens**2 + vy_sens**2)
+    if magnitude < 0.1:
         return 0.0, 0.0
 
-    dir_x, dir_y = sx / magnitude, sy / magnitude
+    dir_x, dir_y = vx_sens / magnitude, vy_sens / magnitude
+    norm_mag = min(1.0, magnitude / SETTINGS["max_velocity"])
+    curved_mag = math.pow(norm_mag, SETTINGS["curve_exponent"])
 
-    # 2. Natural Curve (Power function)
-    normalized_mag = min(1.0, magnitude / 32768.0)
-    curved_mag = math.pow(normalized_mag, SETTINGS["curve_exponent"]) * 32768
+    # Start scaling immediately after the game's deadzone for better accuracy
+    deadzone = SETTINGS.get("game_deadzone", 7000)
+    final_mag = deadzone + \
+        (curved_mag * (32767.0 - deadzone)) if curved_mag > 0 else 0.0
+    final_mag = min(32767.0, final_mag)
 
-    # 3. Dynamic Floor (Lerp between base and max output)
-    speed_factor = min(1.0, curved_mag / SETTINGS["transition_speed"])
-    min_floor = SETTINGS["min_output_base"] + \
-        (SETTINGS["min_output_max"] -
-         SETTINGS["min_output_base"]) * speed_factor
-
-    mapped_mag = min_floor + (curved_mag * ((32768 - min_floor) / 32768.0))
-    return min(32768, mapped_mag) * dir_x, min(32768, mapped_mag) * dir_y
-
-# ==========================================
-# 4. CONTROLLER THREAD (~500 Hz)
-# ==========================================
+    return final_mag * dir_x, final_mag * dir_y
 
 
 def controller_loop():
-    global target_vel_x, target_vel_y
+    global accumulated_dx, accumulated_dy
+    smoothed_vel_x = smoothed_vel_y = 0.0
     current_stick_x = current_stick_y = 0.0
-    alpha = 1.0 - (SETTINGS["output_smoothing"] / 10.0)
+    remainder_x = remainder_y = 0.0  # Stores decimal loss from float->int conversion
+
     move_keys = {k: int(move_cfg.get(k, "0x00"), 16) for k in "WASD"}
+    last_time = time.perf_counter()
 
     while True:
+        current_time = time.perf_counter()
+        dt = current_time - last_time
+
+        # Match 1000Hz polling rate
+        if dt < 0.001:
+            time.sleep(0.0005)
+            continue
+        last_time = current_time
+
         with _state_lock:
-            vx, vy = target_vel_x, target_vel_y
-            idle_secs = time.perf_counter() - last_mouse_time
+            raw_dx, raw_dy = accumulated_dx, accumulated_dy
+            accumulated_dx = accumulated_dy = 0.0
+            idle_secs = current_time - last_mouse_time
 
-        if idle_secs > 0.008:
-            vx = vy = 0.0
-            with _state_lock:
-                target_vel_x = target_vel_y = 0.0
+        # Velocity Conversion & Noise Filter
+        inst_vel_x = raw_dx / dt if dt > 0 else 0
+        inst_vel_y = raw_dy / dt if dt > 0 else 0
 
-        goal_x, goal_y = calculate_joystick_natural(vx, vy)
+        noise_filter_sec = SETTINGS.get("noise_filter_ms", 15.0) / 1000.0
+        if idle_secs > noise_filter_sec:
+            inst_vel_x = inst_vel_y = 0.0
 
-        current_stick_x = (current_stick_x * (1.0 - alpha)) + (goal_x * alpha)
-        current_stick_y = (current_stick_y * (1.0 - alpha)) + (goal_y * alpha)
+        # LERP Smoothing
+        smooth_val = SETTINGS.get("input_smoothing", 0.5)
+        alpha = 1.0 - math.pow(smooth_val, dt * 1000.0)
+        smoothed_vel_x += alpha * (inst_vel_x - smoothed_vel_x)
+        smoothed_vel_y += alpha * (inst_vel_y - smoothed_vel_y)
 
-        final_x = int(max(-32768, min(32767, current_stick_x)))
-        final_y = int(max(-32768, min(32767, current_stick_y)))
+        goal_x, goal_y = calculate_joystick_advanced(
+            smoothed_vel_x, smoothed_vel_y)
 
+        out_smooth = SETTINGS.get("output_smoothing", 0.5)
+        out_alpha = 1.0 - math.pow(out_smooth, dt * 1000.0)
+        current_stick_x += out_alpha * (goal_x - current_stick_x)
+        current_stick_y += out_alpha * (goal_y - current_stick_y)
+
+        # Fractional Accumulator to prevent data loss in 16-bit conversion
+        exact_x, exact_y = current_stick_x + remainder_x, current_stick_y + remainder_y
+        final_x, final_y = int(
+            max(-32768, min(32767, exact_x))), int(max(-32768, min(32767, exact_y)))
+        remainder_x, remainder_y = exact_x - final_x, exact_y - final_y
+
+        # Movement Stick (WASD)
         ls_y = ls_x = 0
-        if move_keys['W'] in active_keys:
+        if move_keys.get('W') in active_keys:
             ls_y += 32767
-        if move_keys['S'] in active_keys:
+        if move_keys.get('S') in active_keys:
             ls_y -= 32768
-        if move_keys['A'] in active_keys:
+        if move_keys.get('A') in active_keys:
             ls_x -= 32768
-        if move_keys['D'] in active_keys:
+        if move_keys.get('D') in active_keys:
             ls_x += 32767
 
         with _vgamepad_lock:
-            gamepad.right_joystick(x_value=final_x, y_value=final_y)
+            # -final_y because mice and sticks use inverted Y mathematical signs
+            gamepad.right_joystick(x_value=final_x, y_value=-final_y)
             gamepad.left_joystick(x_value=ls_x, y_value=ls_y)
             gamepad.update()
 
-        time.sleep(0.001)
-
-# ==========================================
-# 5. INTERCEPTION HOOK
-# ==========================================
-
 
 def run_interception():
-    global override_active, target_vel_x, target_vel_y, last_mouse_time
+    global override_active, accumulated_dx, accumulated_dy, last_mouse_time
 
     c = interception()
     c.set_filter(interception.is_keyboard, 0xFFFF)
     c.set_filter(interception.is_mouse, 0xFFFF)
 
-    f_dx = f_dy = 0.0
+    print("Interception started. Press LALT to toggle bypass mode.")
 
     while True:
         device = c.wait()
@@ -214,11 +224,13 @@ def run_interception():
         if interception.is_keyboard(device) and isinstance(stroke, key_stroke):
             sc, st = stroke.code, stroke.state
 
-            if sc == 0x38:  # LALT Toggle
+            # LALT Toggle Bypass
+            if sc == 0x38:
                 if st in (KEY_DOWN, KEY_E0_DOWN):
-                    override_active = True
-                elif st in (KEY_UP, KEY_E0_UP):
-                    override_active = False
+                    override_active = not override_active
+                    print(f"Bypass Mode: {'ON' if override_active else 'OFF'}")
+                    if override_active:
+                        active_keys.clear()
 
             if not override_active:
                 sc_hex = f"0x{sc:02X}"
@@ -233,10 +245,7 @@ def run_interception():
                     apply_action(key_profile[sc_hex], is_down)
                 elif sc_hex in [move_cfg.get(k) for k in "WASD"]:
                     swallow = True
-                    if is_down:
-                        active_keys.add(sc)
-                    else:
-                        active_keys.discard(sc)
+                    active_keys.add(sc) if is_down else active_keys.discard(sc)
 
         elif interception.is_mouse(device) and isinstance(stroke, mouse_stroke):
             if not override_active:
@@ -246,12 +255,9 @@ def run_interception():
                         apply_action(mouse_cfg[name], is_down)
 
                 if not (stroke.flags & 0x001) and (stroke.x != 0 or stroke.y != 0):
-                    beta = 1.0 - SETTINGS["input_smoothing"]
-                    f_dx = (f_dx * (1.0 - beta)) + (stroke.x * beta)
-                    f_dy = (f_dy * (1.0 - beta)) + (stroke.y * beta)
-
                     with _state_lock:
-                        target_vel_x, target_vel_y = f_dx, f_dy
+                        accumulated_dx += stroke.x
+                        accumulated_dy += stroke.y
                         last_mouse_time = time.perf_counter()
 
         if not swallow:
