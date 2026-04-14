@@ -1,5 +1,25 @@
 {
   "warframe": {
+    "settings": {
+      "_comments": {
+        "min_output_base": "The floor value for joystick output (0-32768)",
+        "min_output_max": "The maximum floor value applied during fast movement",
+        "transition_speed": "Speed threshold where min_output scales from base to max",
+        "input_smoothing": "Fills gaps in raw mouse mickeys (0.0 to 1.0)",
+        "output_smoothing": "EMA lag for virtual stick (lower is more raw, higher is smoother)",
+        "curve_exponent": "Power curve: > 1.0 tightens center precision, 1.0 is linear",
+        "sens_x": "Horizontal sensitivity multiplier",
+        "sens_y": "Vertical sensitivity multiplier"
+      },
+      "min_output_base": 1000,
+      "min_output_max": 5000,
+      "transition_speed": 6000,
+      "input_smoothing": 0.4,
+      "output_smoothing": 3,
+      "curve_exponent": 1.005,
+      "sens_x": 600,
+      "sens_y": 600
+    },
     "key_profile": {
       "0x01": "XUSB_GAMEPAD_START",
       "0x06": "XUSB_GAMEPAD_DPAD_LEFT",
@@ -37,6 +57,16 @@
     }
   },
   "default": {
+    "settings": {
+      "min_output_base": 100,
+      "min_output_max": 5000,
+      "transition_speed": 6000,
+      "input_smoothing": 0.4,
+      "output_smoothing": 3,
+      "curve_exponent": 1.005,
+      "sens_x": 600,
+      "sens_y": 600
+    },
     "key_profile": {
       "0x11": "XUSB_GAMEPAD_DPAD_UP",
       "0x1F": "XUSB_GAMEPAD_DPAD_DOWN",
