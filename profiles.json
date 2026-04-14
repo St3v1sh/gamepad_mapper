@@ -1,0 +1,53 @@
+{
+  "warframe": {
+    "key_profile": {
+      "0x01": "XUSB_GAMEPAD_START",
+      "0x06": "XUSB_GAMEPAD_DPAD_LEFT",
+      "0x0F": "XUSB_GAMEPAD_RIGHT_THUMB",
+      "0x10": "XUSB_GAMEPAD_DPAD_UP",
+      "0x12": "XUSB_GAMEPAD_X",
+      "0x1D": "XUSB_GAMEPAD_LEFT_THUMB",
+      "0x21": "XUSB_GAMEPAD_B",
+      "0x2A": "XUSB_GAMEPAD_LEFT_SHOULDER",
+      "0x2C": "XUSB_GAMEPAD_DPAD_DOWN",
+      "0x39": "XUSB_GAMEPAD_RIGHT_SHOULDER",
+      "0x3B": "XUSB_GAMEPAD_BACK"
+    },
+    "combos": {
+      "0x02": ["XUSB_GAMEPAD_DPAD_RIGHT", "XUSB_GAMEPAD_A"],
+      "0x03": ["XUSB_GAMEPAD_DPAD_RIGHT", "XUSB_GAMEPAD_X"],
+      "0x04": ["XUSB_GAMEPAD_DPAD_RIGHT", "XUSB_GAMEPAD_B"],
+      "0x05": ["XUSB_GAMEPAD_DPAD_RIGHT", "XUSB_GAMEPAD_Y"]
+    },
+    "mouse_buttons": {
+      "LEFT_DOWN": "RIGHT_TRIGGER",
+      "LEFT_UP": "RIGHT_TRIGGER",
+      "RIGHT_DOWN": "LEFT_TRIGGER",
+      "RIGHT_UP": "LEFT_TRIGGER",
+      "MIDDLE_DOWN": "XUSB_GAMEPAD_A",
+      "MIDDLE_UP": "XUSB_GAMEPAD_A",
+      "X1_DOWN": "XUSB_GAMEPAD_Y",
+      "X1_UP": "XUSB_GAMEPAD_Y"
+    },
+    "movement": {
+      "W": "0x11",
+      "A": "0x1E",
+      "S": "0x1F",
+      "D": "0x20"
+    }
+  },
+  "default": {
+    "key_profile": {
+      "0x11": "XUSB_GAMEPAD_DPAD_UP",
+      "0x1F": "XUSB_GAMEPAD_DPAD_DOWN",
+      "0x1E": "XUSB_GAMEPAD_DPAD_LEFT",
+      "0x20": "XUSB_GAMEPAD_DPAD_RIGHT",
+      "0x39": "XUSB_GAMEPAD_A",
+      "0x2A": "XUSB_GAMEPAD_B",
+      "0x13": "XUSB_GAMEPAD_X"
+    },
+    "combos": {},
+    "mouse_buttons": {},
+    "movement": {}
+  }
+}
