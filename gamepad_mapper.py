@@ -5,8 +5,6 @@ Requires:
   1. ViGEmBus Driver: https://github.com/ViGEm/ViGEmBus/releases (Must be installed)
   2. The Interception driver: https://github.com/oblitum/Interception (Requires Reboot)
   3. pip install vgamepad
-  4. Download `interception.py`, `consts.py`, and `stroke.py` from
-     https://github.com/cobrce/interception_py and place in this directory.
 
 Run as Administrator.
 
