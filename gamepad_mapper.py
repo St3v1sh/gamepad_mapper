@@ -41,6 +41,9 @@ DEFAULT_SETTINGS = {
     # Snaps stick to zero if no movement occurs within this window (ms).
     "noise_filter_ms": 15.0,
 
+    # Delay between sequential buttons in a combo macro
+    "combo_delay_ms": 50.0,
+
     "sens_x": 100,
     "sens_y": 100,
 }
@@ -116,6 +119,24 @@ def apply_action(action: str, is_down: bool):
             gamepad.right_trigger(value=255 if is_down else 0)
         elif action == "LEFT_TRIGGER":
             gamepad.left_trigger(value=255 if is_down else 0)
+
+
+def execute_combo(actions: list, is_down: bool):
+    """
+    Executes a multi-button combo sequentially in a background thread
+    so it doesn't freeze the mouse polling loop.
+    """
+    delay_sec = SETTINGS.get("combo_delay_ms", 50.0) / 1000.0
+
+    # Press in forward order, release in reverse order
+    ordered_actions = actions if is_down else reversed(actions)
+
+    for i, action in enumerate(ordered_actions):
+        apply_action(action, is_down)
+
+        # Only sleep if we have a delay and we aren't on the very last item
+        if delay_sec > 0 and i < len(actions) - 1:
+            time.sleep(delay_sec)
 
 
 def calculate_joystick_advanced(vx: float, vy: float):
@@ -245,13 +266,14 @@ def run_interception():
         if interception.is_keyboard(device) and isinstance(stroke, key_stroke):
             sc, st = stroke.code, stroke.state
 
-            # LALT Toggle Bypass
-            if sc == 0x38:
-                if st in (KEY_DOWN, KEY_E0_DOWN):
+            # RALT Toggle Bypass
+            if sc == 0x38 and st in (KEY_E0_DOWN, KEY_E0_UP):
+                if st == KEY_E0_DOWN:
                     override_active = not override_active
                     print(f"Bypass Mode: {'ON' if override_active else 'OFF'}")
                     if override_active:
                         active_keys.clear()
+                swallow = True
 
             if not override_active:
                 sc_hex = f"0x{sc:02X}"
@@ -259,11 +281,13 @@ def run_interception():
 
                 if sc_hex in combo_cfg:
                     swallow = True
-                    for action in combo_cfg[sc_hex]:
-                        apply_action(action, is_down)
+                    threading.Thread(target=execute_combo, args=(
+                        combo_cfg[sc_hex], is_down), daemon=True).start()
+
                 elif sc_hex in key_profile:
                     swallow = True
                     apply_action(key_profile[sc_hex], is_down)
+
                 elif sc_hex in [move_cfg.get(k) for k in "WASD"]:
                     swallow = True
                     active_keys.add(sc) if is_down else active_keys.discard(sc)
