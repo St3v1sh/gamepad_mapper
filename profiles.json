@@ -1,7 +1,7 @@
 {
   "warframe": {
     "settings": {
-      "game_deadzone": 0,
+      "game_deadzone": 4000,
       "max_velocity": 30000.0,
       "curve_exponent": 0.45,
       "input_smoothing": 0.4,
