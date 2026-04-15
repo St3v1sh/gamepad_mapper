@@ -1,10 +1,12 @@
 """
 Mouse/Keyboard to Xbox 360 Controller Mapper
-============================================
+
 Requires:
   1. ViGEmBus Driver: https://github.com/ViGEm/ViGEmBus/releases (Must be installed)
   2. The Interception driver: https://github.com/oblitum/Interception (Requires Reboot)
   3. pip install vgamepad
+  4. pip install interception-python
+  5. pip install pywin32 (dependency of interception-python)
 
 Run as Administrator.
 
@@ -18,8 +20,9 @@ import os
 import json
 import argparse
 import vgamepad as vg
-from interception import interception, key_stroke, mouse_stroke
-from consts import interception_key_state as ks
+from interception import Interception
+from interception.strokes import KeyStroke, MouseStroke
+from interception.constants import KeyFlag, FilterKeyFlag, FilterMouseButtonFlag
 
 DEFAULT_SETTINGS = {
     # The inner deadzone of the game.
@@ -93,7 +96,6 @@ for i in range(5):
 
 if not gamepad:
     print("Error: Could not connect to ViGEmBus after multiple attempts.")
-    print("Ensure ViGEmBus is installed: https://github.com/ViGEm/ViGEmBus/releases")
     exit(1)
 
 # Load profile and settings
@@ -319,29 +321,29 @@ def controller_loop():
 def run_interception():
     global override_active, accumulated_dx, accumulated_dy, last_mouse_time
 
-    c = interception()
-    c.set_filter(interception.is_keyboard, 0xFFFF)
-    c.set_filter(interception.is_mouse, 0xFFFF)
+    c = Interception()
+    c.set_filter(Interception.is_keyboard, FilterKeyFlag.FILTER_KEY_ALL)
+    c.set_filter(Interception.is_mouse, FilterMouseButtonFlag.FILTER_MOUSE_ALL)
 
     _key_states = {}
 
     print("Interception started. Press Right Alt or F12 to toggle bypass mode.")
 
     while True:
-        device = c.wait()
-        stroke = c.receive(device)
+        device = c.await_input()
+        if device is None:
+            continue
+
+        stroke = c.devices[device].receive()
         swallow = False
 
-        if interception.is_keyboard(device) and isinstance(stroke, key_stroke):
-            sc, st = stroke.code, stroke.state
+        if Interception.is_keyboard(device) and isinstance(stroke, KeyStroke):
+            sc, st = stroke.code, stroke.flags  # 'state' is now 'flags'
 
-            # Accurately identify if it's an extended key with a bitwise check
-            is_e0 = bool(st & ks.INTERCEPTION_KEY_E0.value)
+            is_e0 = bool(st & KeyFlag.KEY_E0)
             sc_hex = f"0x{'E0' if is_e0 else ''}{sc:02X}"
 
-            # The lowest bit (0x01) indicates if the key is released. 0 means pressed.
-            # This completely ignores side-flags like TERMSRV_SET_LED
-            is_down = not bool(st & ks.INTERCEPTION_KEY_UP.value)
+            is_down = not bool(st & KeyFlag.KEY_UP)
 
             # RALT (0xE038) or F12 (0x58) Toggle Bypass
             if sc_hex in ("0xE038", "0x58"):
@@ -358,7 +360,7 @@ def run_interception():
             elif not override_active:
                 # Check if this state is actually a change to prevent auto-repeat spam
                 is_change = _key_states.get(sc_hex) != is_down
-                _key_states[sc_hex] = is_down  # Update state for all keys
+                _key_states[sc_hex] = is_down
 
                 if sc_hex in combo_cfg:
                     swallow = True
@@ -382,13 +384,13 @@ def run_interception():
                         else:
                             active_keys.discard(sc_hex)
 
-        elif interception.is_mouse(device) and isinstance(stroke, mouse_stroke):
+        elif Interception.is_mouse(device) and isinstance(stroke, MouseStroke):
             if not override_active:
                 swallow = True
                 mouse_changed = False
 
                 for name, (flag, is_down) in MOUSE_FLAGS.items():
-                    if stroke.state & flag and name in mouse_cfg:
+                    if stroke.button_flags & flag and name in mouse_cfg:
                         apply_action(mouse_cfg[name], is_down, do_update=False)
                         mouse_changed = True
 

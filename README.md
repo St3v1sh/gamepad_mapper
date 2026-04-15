@@ -21,6 +21,8 @@ It uses smoothing, non-linear response curves, and macro "combos".
 4.  **Dependencies:**
     ```bash
     pip install vgamepad
+    pip install interception-python
+    pip install pywin32
     ```
 
 ## Usage
