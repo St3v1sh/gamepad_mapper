@@ -35,6 +35,9 @@ DEFAULT_SETTINGS = {
     "input_smoothing": 0.5,
     "output_smoothing": 0.5,
 
+    # Analog stick roll for WASD (0.0 to 0.99). High values allow micro-taps.
+    "movement_smoothing": 0.9,
+
     # Snaps stick to zero if no movement occurs within this window (ms).
     "noise_filter_ms": 15.0,
 
@@ -143,6 +146,9 @@ def controller_loop():
     current_stick_x = current_stick_y = 0.0
     remainder_x = remainder_y = 0.0  # Stores decimal loss from float->int conversion
 
+    # Left stick tracking variables
+    current_ls_x = current_ls_y = 0.0
+
     move_keys = {k: int(move_cfg.get(k, "0x00"), 16) for k in "WASD"}
     last_time = time.perf_counter()
 
@@ -161,7 +167,7 @@ def controller_loop():
             accumulated_dx = accumulated_dy = 0.0
             idle_secs = current_time - last_mouse_time
 
-        # Velocity Conversion & Noise Filter
+        # --- Right Stick (Mouse) Logic ---
         inst_vel_x = raw_dx / dt if dt > 0 else 0
         inst_vel_y = raw_dy / dt if dt > 0 else 0
 
@@ -169,7 +175,6 @@ def controller_loop():
         if idle_secs > noise_filter_sec:
             inst_vel_x = inst_vel_y = 0.0
 
-        # LERP Smoothing
         smooth_val = SETTINGS.get("input_smoothing", 0.5)
         alpha = 1.0 - math.pow(smooth_val, dt * 1000.0)
         smoothed_vel_x += alpha * (inst_vel_x - smoothed_vel_x)
@@ -183,27 +188,43 @@ def controller_loop():
         current_stick_x += out_alpha * (goal_x - current_stick_x)
         current_stick_y += out_alpha * (goal_y - current_stick_y)
 
-        # Fractional Accumulator to prevent data loss in 16-bit conversion
         exact_x, exact_y = current_stick_x + remainder_x, current_stick_y + remainder_y
-        final_x, final_y = int(
-            max(-32768, min(32767, exact_x))), int(max(-32768, min(32767, exact_y)))
+        final_x = int(max(-32768, min(32767, exact_x)))
+        final_y = int(max(-32768, min(32767, exact_y)))
         remainder_x, remainder_y = exact_x - final_x, exact_y - final_y
 
-        # Movement Stick (WASD)
-        ls_y = ls_x = 0
+        # --- Left Stick (Movement) Logic ---
+        target_ls_x = target_ls_y = 0.0
         if move_keys.get('W') in active_keys:
-            ls_y += 32767
+            target_ls_y += 1.0
         if move_keys.get('S') in active_keys:
-            ls_y -= 32768
+            target_ls_y -= 1.0
         if move_keys.get('A') in active_keys:
-            ls_x -= 32768
+            target_ls_x -= 1.0
         if move_keys.get('D') in active_keys:
-            ls_x += 32767
+            target_ls_x += 1.0
 
+        # Normalize the diagonal movement to a perfect circle
+        mag = math.sqrt(target_ls_x**2 + target_ls_y**2)
+        if mag > 1.0:
+            target_ls_x /= mag
+            target_ls_y /= mag
+
+        # Simulate thumbstick analog roll (solves menu pixel skipping)
+        move_smooth = SETTINGS.get("movement_smoothing", 0.85)
+        move_alpha = 1.0 - math.pow(move_smooth, dt * 1000.0)
+
+        current_ls_x += move_alpha * (target_ls_x - current_ls_x)
+        current_ls_y += move_alpha * (target_ls_y - current_ls_y)
+
+        final_ls_x = int(current_ls_x * 32767)
+        final_ls_y = int(current_ls_y * 32767)
+
+        # Output to gamepad
         with _vgamepad_lock:
             # -final_y because mice and sticks use inverted Y mathematical signs
             gamepad.right_joystick(x_value=final_x, y_value=-final_y)
-            gamepad.left_joystick(x_value=ls_x, y_value=ls_y)
+            gamepad.left_joystick(x_value=final_ls_x, y_value=final_ls_y)
             gamepad.update()
 
 
