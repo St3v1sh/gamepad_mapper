@@ -83,7 +83,20 @@ accumulated_dy = 0.0
 last_mouse_time = time.perf_counter()
 active_keys = set()
 
-gamepad = vg.VX360Gamepad()
+gamepad = None
+for i in range(5):
+    try:
+        gamepad = vg.VX360Gamepad()
+        print("Virtual Xbox 360 Controller connected to ViGEmBus.")
+        break
+    except Exception as e:
+        print(f"Connection attempt {i+1} failed: {e}. Retrying...")
+        time.sleep(1.0)
+
+if not gamepad:
+    print("Error: Could not connect to ViGEmBus after multiple attempts.")
+    print("Ensure ViGEmBus is installed: https://github.com/ViGEm/ViGEmBus/releases")
+    exit(1)
 
 # Load profile and settings
 parser = argparse.ArgumentParser()
