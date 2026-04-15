@@ -2,9 +2,10 @@
 Mouse/Keyboard to Xbox 360 Controller Mapper
 ============================================
 Requires:
-  1. pip install vgamepad
-  2. The Interception driver: https://github.com/oblitum/Interception
-  3. Download `interception.py`, `consts.py`, and `stroke.py` from
+  1. ViGEmBus Driver: https://github.com/ViGEm/ViGEmBus/releases (Must be installed)
+  2. The Interception driver: https://github.com/oblitum/Interception (Requires Reboot)
+  3. pip install vgamepad
+  4. Download `interception.py`, `consts.py`, and `stroke.py` from
      https://github.com/cobrce/interception_py and place in this directory.
 
 Run as Administrator.
@@ -20,6 +21,7 @@ import json
 import argparse
 import vgamepad as vg
 from interception import interception, key_stroke, mouse_stroke
+from consts import interception_key_state as ks
 
 DEFAULT_SETTINGS = {
     # The inner deadzone of the game.
@@ -36,13 +38,13 @@ DEFAULT_SETTINGS = {
     "output_smoothing": 0.5,
 
     # Analog stick roll for WASD (0.0 to 0.99). High values allow micro-taps.
-    "movement_smoothing": 0.9,
+    "movement_smoothing": 0.2,
 
     # Snaps stick to zero if no movement occurs within this window (ms).
     "noise_filter_ms": 15.0,
 
     # Delay between sequential buttons in a combo macro
-    "combo_delay_ms": 50.0,
+    "combo_delay_ms": 35.0,
 
     "sens_x": 100,
     "sens_y": 100,
@@ -71,8 +73,6 @@ MOUSE_FLAGS = {
     "MIDDLE_DOWN": (0x010, True), "MIDDLE_UP": (0x020, False),
     "X1_DOWN": (0x040, True), "X1_UP": (0x080, False),
 }
-
-KEY_DOWN, KEY_UP, KEY_E0_DOWN, KEY_E0_UP = 0x00, 0x01, 0x02, 0x03
 
 _state_lock = threading.Lock()
 _vgamepad_lock = threading.Lock()
@@ -114,15 +114,46 @@ current_profile = PROFILES.get(profile_name, PROFILES.get("default", {}))
 SETTINGS = DEFAULT_SETTINGS.copy()
 SETTINGS.update(current_profile.get("settings", {}))
 
-key_profile = current_profile.get("key_profile", {})
-combo_cfg = current_profile.get("combos", {})
+
+def _normalize_hex_keys(d: dict):
+    norm = {}
+    for k, v in d.items():
+        try:
+            norm[f"0x{int(k, 16):02X}"] = v
+        except ValueError:
+            norm[k] = v
+    return norm
+
+
+key_profile = _normalize_hex_keys(current_profile.get("key_profile", {}))
+combo_cfg = _normalize_hex_keys(current_profile.get("combos", {}))
 mouse_cfg = current_profile.get("mouse_buttons", {})
 move_cfg = current_profile.get("movement", {})
 
 print(f"Loaded profile: {profile_name}")
 
 
-def apply_action(action: str, is_down: bool):
+def _format_hex(v):
+    try:
+        return f"0x{int(v, 16):02X}"
+    except:
+        return "0xFFFF"
+
+
+# Map string keys to string hexes to perfectly match sc_hex values
+MOVE_KEYS_MAP = {k: _format_hex(move_cfg.get(k, "0xFFFF")) for k in "WASD"}
+MOVE_HEX_SET = set(MOVE_KEYS_MAP.values())
+
+_last_button_states = {}
+_combo_locks = {k: threading.Lock() for k in combo_cfg.keys()}
+
+
+def apply_action(action: str, is_down: bool, do_update: bool = True):
+    global _last_button_states
+    if _last_button_states.get(action) == is_down:
+        return  # Skip if state hasn't changed
+
+    _last_button_states[action] = is_down
     with _vgamepad_lock:
         if action in BTN_MAP:
             btn = BTN_MAP[action]
@@ -133,23 +164,40 @@ def apply_action(action: str, is_down: bool):
         elif action == "LEFT_TRIGGER":
             gamepad.left_trigger(value=255 if is_down else 0)
 
+        # Allow skipping immediate updates for stacked packets (like mouse events)
+        if do_update:
+            gamepad.update()
 
-def execute_combo(actions: list, is_down: bool):
+
+def execute_combo_sequence(sc_hex: str, actions: list):
     """
-    Executes a multi-button combo sequentially in a background thread
-    so it doesn't freeze the mouse polling loop.
+    Executes a sequence as a single 'Tap' event.
+    This is much more consistent for game powers/macros.
     """
-    delay_sec = SETTINGS.get("combo_delay_ms", 50.0) / 1000.0
+    # Prevent overlapping runs if key is mashed
+    if not _combo_locks[sc_hex].acquire(blocking=False):
+        return
 
-    # Press in forward order, release in reverse order
-    ordered_actions = actions if is_down else reversed(actions)
+    try:
+        delay_sec = SETTINGS["combo_delay_ms"] / 1000.0
 
-    for i, action in enumerate(ordered_actions):
-        apply_action(action, is_down)
+        # 1. Press all buttons in order
+        for action in actions:
+            apply_action(action, True, do_update=True)
+            if delay_sec > 0:
+                time.sleep(delay_sec)
 
-        # Only sleep if we have a delay and we aren't on the very last item
-        if delay_sec > 0 and i < len(actions) - 1:
+        # 2. Small pause while everything is held (optional, helps some games)
+        if delay_sec > 0:
             time.sleep(delay_sec)
+
+        # 3. Release all buttons in reverse order
+        for action in reversed(actions):
+            apply_action(action, False, do_update=True)
+            if delay_sec > 0:
+                time.sleep(delay_sec)
+    finally:
+        _combo_locks[sc_hex].release()
 
 
 def calculate_joystick_advanced(vx: float, vy: float):
@@ -166,7 +214,7 @@ def calculate_joystick_advanced(vx: float, vy: float):
     curved_mag = math.pow(norm_mag, SETTINGS["curve_exponent"])
 
     # Start scaling immediately after the game's deadzone for better accuracy
-    deadzone = SETTINGS.get("game_deadzone", 7000)
+    deadzone = SETTINGS["game_deadzone"]
     final_mag = deadzone + \
         (curved_mag * (32767.0 - deadzone)) if curved_mag > 0 else 0.0
     final_mag = min(32767.0, final_mag)
@@ -182,8 +230,6 @@ def controller_loop():
 
     # Left stick tracking variables
     current_ls_x = current_ls_y = 0.0
-
-    move_keys = {k: int(move_cfg.get(k, "0x00"), 16) for k in "WASD"}
     last_time = time.perf_counter()
 
     while True:
@@ -201,15 +247,21 @@ def controller_loop():
             accumulated_dx = accumulated_dy = 0.0
             idle_secs = current_time - last_mouse_time
 
+            # Use the global mapping against the active_keys strings
+            w_pressed = MOVE_KEYS_MAP.get('W') in active_keys
+            a_pressed = MOVE_KEYS_MAP.get('A') in active_keys
+            s_pressed = MOVE_KEYS_MAP.get('S') in active_keys
+            d_pressed = MOVE_KEYS_MAP.get('D') in active_keys
+
         # --- Right Stick (Mouse) Logic ---
         inst_vel_x = raw_dx / dt if dt > 0 else 0
         inst_vel_y = raw_dy / dt if dt > 0 else 0
 
-        noise_filter_sec = SETTINGS.get("noise_filter_ms", 15.0) / 1000.0
+        noise_filter_sec = SETTINGS["noise_filter_ms"] / 1000.0
         if idle_secs > noise_filter_sec:
             inst_vel_x = inst_vel_y = 0.0
 
-        smooth_val = SETTINGS.get("input_smoothing", 0.5)
+        smooth_val = SETTINGS["input_smoothing"]
         alpha = 1.0 - math.pow(smooth_val, dt * 1000.0)
         smoothed_vel_x += alpha * (inst_vel_x - smoothed_vel_x)
         smoothed_vel_y += alpha * (inst_vel_y - smoothed_vel_y)
@@ -217,10 +269,14 @@ def controller_loop():
         goal_x, goal_y = calculate_joystick_advanced(
             smoothed_vel_x, smoothed_vel_y)
 
-        out_smooth = SETTINGS.get("output_smoothing", 0.5)
+        out_smooth = SETTINGS["output_smoothing"]
         out_alpha = 1.0 - math.pow(out_smooth, dt * 1000.0)
         current_stick_x += out_alpha * (goal_x - current_stick_x)
         current_stick_y += out_alpha * (goal_y - current_stick_y)
+
+        # Clamp to bounds immediately to stop "momentum ballooning" during fast flicks
+        current_stick_x = max(-32768.0, min(32767.0, current_stick_x))
+        current_stick_y = max(-32768.0, min(32767.0, current_stick_y))
 
         exact_x, exact_y = current_stick_x + remainder_x, current_stick_y + remainder_y
         final_x = int(max(-32768, min(32767, exact_x)))
@@ -229,13 +285,13 @@ def controller_loop():
 
         # --- Left Stick (Movement) Logic ---
         target_ls_x = target_ls_y = 0.0
-        if move_keys.get('W') in active_keys:
+        if w_pressed:
             target_ls_y += 1.0
-        if move_keys.get('S') in active_keys:
+        if s_pressed:
             target_ls_y -= 1.0
-        if move_keys.get('A') in active_keys:
+        if a_pressed:
             target_ls_x -= 1.0
-        if move_keys.get('D') in active_keys:
+        if d_pressed:
             target_ls_x += 1.0
 
         # Normalize the diagonal movement to a perfect circle
@@ -245,7 +301,7 @@ def controller_loop():
             target_ls_y /= mag
 
         # Simulate thumbstick analog roll (solves menu pixel skipping)
-        move_smooth = SETTINGS.get("movement_smoothing", 0.85)
+        move_smooth = SETTINGS["movement_smoothing"]
         move_alpha = 1.0 - math.pow(move_smooth, dt * 1000.0)
 
         current_ls_x += move_alpha * (target_ls_x - current_ls_x)
@@ -269,7 +325,9 @@ def run_interception():
     c.set_filter(interception.is_keyboard, 0xFFFF)
     c.set_filter(interception.is_mouse, 0xFFFF)
 
-    print("Interception started. Press LALT to toggle bypass mode.")
+    _key_states = {}
+
+    print("Interception started. Press Right Alt or F12 to toggle bypass mode.")
 
     while True:
         device = c.wait()
@@ -279,38 +337,66 @@ def run_interception():
         if interception.is_keyboard(device) and isinstance(stroke, key_stroke):
             sc, st = stroke.code, stroke.state
 
-            # RALT Toggle Bypass
-            if sc == 0x38 and st in (KEY_E0_DOWN, KEY_E0_UP):
-                if st == KEY_E0_DOWN:
+            # Accurately identify if it's an extended key with a bitwise check
+            is_e0 = bool(st & ks.INTERCEPTION_KEY_E0.value)
+            sc_hex = f"0x{'E0' if is_e0 else ''}{sc:02X}"
+
+            # The lowest bit (0x01) indicates if the key is released. 0 means pressed.
+            # This completely ignores side-flags like TERMSRV_SET_LED
+            is_down = not bool(st & ks.INTERCEPTION_KEY_UP.value)
+
+            # RALT (0xE038) or F12 (0x58) Toggle Bypass
+            if sc_hex in ("0xE038", "0x58"):
+                if is_down and not _key_states.get(sc_hex, False):
                     override_active = not override_active
                     print(f"Bypass Mode: {'ON' if override_active else 'OFF'}")
                     if override_active:
-                        active_keys.clear()
+                        with _state_lock:
+                            active_keys.clear()
+
+                _key_states[sc_hex] = is_down
                 swallow = True
 
-            if not override_active:
-                sc_hex = f"0x{sc:02X}"
-                is_down = st in (KEY_DOWN, KEY_E0_DOWN)
+            elif not override_active:
+                # Check if this state is actually a change to prevent auto-repeat spam
+                is_change = _key_states.get(sc_hex) != is_down
+                _key_states[sc_hex] = is_down  # Update state for all keys
 
                 if sc_hex in combo_cfg:
                     swallow = True
-                    threading.Thread(target=execute_combo, args=(
-                        combo_cfg[sc_hex], is_down), daemon=True).start()
+                    if is_down and is_change:
+                        threading.Thread(
+                            target=execute_combo_sequence,
+                            args=(sc_hex, combo_cfg[sc_hex]),
+                            daemon=True
+                        ).start()
 
                 elif sc_hex in key_profile:
                     swallow = True
-                    apply_action(key_profile[sc_hex], is_down)
+                    apply_action(key_profile[sc_hex], is_down, do_update=True)
 
-                elif sc_hex in [move_cfg.get(k) for k in "WASD"]:
+                # Use the pre-calculated MOVE_HEX_SET for speed
+                elif sc_hex in MOVE_HEX_SET:
                     swallow = True
-                    active_keys.add(sc) if is_down else active_keys.discard(sc)
+                    with _state_lock:
+                        if is_down:
+                            active_keys.add(sc_hex)
+                        else:
+                            active_keys.discard(sc_hex)
 
         elif interception.is_mouse(device) and isinstance(stroke, mouse_stroke):
             if not override_active:
                 swallow = True
+                mouse_changed = False
+
                 for name, (flag, is_down) in MOUSE_FLAGS.items():
                     if stroke.state & flag and name in mouse_cfg:
-                        apply_action(mouse_cfg[name], is_down)
+                        apply_action(mouse_cfg[name], is_down, do_update=False)
+                        mouse_changed = True
+
+                if mouse_changed:
+                    with _vgamepad_lock:
+                        gamepad.update()
 
                 if not (stroke.flags & 0x001) and (stroke.x != 0 or stroke.y != 0):
                     with _state_lock:

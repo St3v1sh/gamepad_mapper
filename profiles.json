@@ -1,23 +1,14 @@
 {
   "warframe": {
     "settings": {
-      "_comments": {
-        "game_deadzone": "Set to 0 since right-stick deadzone is disabled in-game for true 1:1 aiming.",
-        "max_velocity": "Cap for mouse velocity. Need a fast flick while still maintaining responsiveness for fine control.",
-        "curve_exponent": "Low to make it feel more natural and less sticky.",
-        "input_smoothing": "Raw mickey smoothing.",
-        "output_smoothing": "0.3 is a good default.",
-        "noise_filter_ms": "1ms timeout to stop drift when your hand is entirely still to make it snappy.",
-        "sens_x": "x-axis sensitivity.",
-        "sens_y": "y-axis sensitivity."
-      },
       "game_deadzone": 0,
       "max_velocity": 30000.0,
       "curve_exponent": 0.45,
       "input_smoothing": 0.4,
       "output_smoothing": 0.4,
+      "movement_smoothing": 0.2,
       "noise_filter_ms": 3.0,
-      "combo_delay_ms": 50.0,
+      "combo_delay_ms": 35.0,
       "sens_x": 180,
       "sens_y": 180
     },
