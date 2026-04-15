@@ -107,3 +107,9 @@ The Interception driver uses **Scan Code Set 1**. Below is a mapping of the most
 | **Numpad 4** | `0x4B` | **Numpad Plus**  | `0x4E` |
 | **Numpad 5** | `0x4C` | **Numpad Minus** | `0x4A` |
 | **Numpad .** | `0x53` | **Numpad Star**  | `0x37` |
+
+## Example Profile: Warframe Mobile
+
+The example profile `warframe` is for the mobile app version of the game Warframe with my controller scheme.
+
+<img width="1608" height="698" alt="image" src="https://github.com/user-attachments/assets/de1001e5-8329-4330-a3d2-a6569fab6aaa" />
