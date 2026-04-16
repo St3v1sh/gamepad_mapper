@@ -45,7 +45,7 @@ Each profile contains four sections:
 
 - **`settings`**: Controls sensitivity, deadzones, smoothing, and curves.
 - **`key_profile`**: Maps keyboard hex codes to Xbox buttons (e.g., `"0x12": "XUSB_GAMEPAD_X"`).
-- **`mouse_buttons`**: Maps mouse clicks (LEFT, RIGHT, MIDDLE, X1) to triggers or buttons.
+- **`mouse_buttons`**: Maps mouse clicks (LEFT, RIGHT, MIDDLE, X1, X2) to triggers or buttons.
 - **`combos`**: Defines a list of buttons to be pressed in sequence when a key is tapped.
 
 ---

@@ -68,11 +68,13 @@ BTN_MAP = {
     "XUSB_GAMEPAD_DPAD_RIGHT": vg.XUSB_BUTTON.XUSB_GAMEPAD_DPAD_RIGHT,
 }
 
-MOUSE_FLAGS = {
-    "LEFT_DOWN": (0x001, True), "LEFT_UP": (0x002, False),
-    "RIGHT_DOWN": (0x004, True), "RIGHT_UP": (0x008, False),
-    "MIDDLE_DOWN": (0x010, True), "MIDDLE_UP": (0x020, False),
-    "X1_DOWN": (0x040, True), "X1_UP": (0x080, False),
+# Grouped DOWN and UP hex flags for each mouse button
+MOUSE_BUTTON_FLAGS = {
+    "LEFT": (0x001, 0x002),
+    "RIGHT": (0x004, 0x008),
+    "MIDDLE": (0x010, 0x020),
+    "X1": (0x040, 0x080),
+    "X2": (0x100, 0x200),
 }
 
 _state_lock = threading.Lock()
@@ -397,10 +399,16 @@ def run_interception():
                 swallow = True
                 mouse_changed = False
 
-                for name, (flag, is_down) in MOUSE_FLAGS.items():
-                    if stroke.button_flags & flag and name in mouse_cfg:
-                        apply_action(mouse_cfg[name], is_down, do_update=False)
-                        mouse_changed = True
+                for name, (down_flag, up_flag) in MOUSE_BUTTON_FLAGS.items():
+                    if name in mouse_cfg:
+                        if stroke.button_flags & down_flag:
+                            apply_action(
+                                mouse_cfg[name], True, do_update=False)
+                            mouse_changed = True
+                        elif stroke.button_flags & up_flag:
+                            apply_action(
+                                mouse_cfg[name], False, do_update=False)
+                            mouse_changed = True
 
                 if mouse_changed:
                     with _vgamepad_lock:
