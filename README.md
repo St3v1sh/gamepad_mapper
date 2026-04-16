@@ -11,7 +11,7 @@ It uses smoothing, non-linear response curves, and macro "combos".
 - **Movement Emulation:** WASD inputs are converted into analog stick values with configurable smoothing to prevent menu skipping.
 - **Combo Macros:** Map a single key to a sequence of controller inputs (useful for complex game abilities).
 - **Profile System:** Easily swap between different game settings using a JSON configuration.
-- **Bypass Mode:** Press **Right Alt** to instantly toggle the mapping on/off so you can use your PC normally without closing the script.
+- **Bypass Mode:** Press **Right Alt** or **F12** to toggle the mapping on/off so you can use your PC normally without closing the script.
 
 ## Prerequisites
 
@@ -41,7 +41,7 @@ It uses smoothing, non-linear response curves, and macro "combos".
 
 ## Configuration (`profiles.json`)
 
-Each profile contains three main sections:
+Each profile contains four sections:
 
 - **`settings`**: Controls sensitivity, deadzones, smoothing, and curves.
 - **`key_profile`**: Maps keyboard hex codes to Xbox buttons (e.g., `"0x12": "XUSB_GAMEPAD_X"`).
