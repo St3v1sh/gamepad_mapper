@@ -145,7 +145,10 @@ MOVE_KEYS_MAP = {k: _format_hex(move_cfg.get(k, "0xFFFF")) for k in "WASD"}
 MOVE_HEX_SET = set(MOVE_KEYS_MAP.values())
 
 _last_button_states = {}
+
+# Locks to prevent double-execution, and events to track key releases
 _combo_locks = {k: threading.Lock() for k in combo_cfg.keys()}
+_combo_events = {k: threading.Event() for k in combo_cfg.keys()}
 
 
 def apply_action(action: str, is_down: bool, do_update: bool = True):
@@ -171,8 +174,8 @@ def apply_action(action: str, is_down: bool, do_update: bool = True):
 
 def execute_combo_sequence(sc_hex: str, actions: list):
     """
-    Executes a sequence as a single 'Tap' event.
-    This is much more consistent for game powers/macros.
+    Executes a sequence of button presses on key down, waits for the key
+    to be released, and then releases the combo buttons.
     """
     # Prevent overlapping runs if key is mashed
     if not _combo_locks[sc_hex].acquire(blocking=False):
@@ -181,21 +184,18 @@ def execute_combo_sequence(sc_hex: str, actions: list):
     try:
         delay_sec = SETTINGS["combo_delay_ms"] / 1000.0
 
-        # 1. Press all buttons in order
+        # 1. Press all buttons in order with a delay
         for action in actions:
             apply_action(action, True, do_update=True)
             if delay_sec > 0:
                 time.sleep(delay_sec)
 
-        # 2. Small pause while everything is held (optional, helps some games)
-        if delay_sec > 0:
-            time.sleep(delay_sec)
+        # 2. Wait indefinitely until the physical key is released
+        _combo_events[sc_hex].wait()
 
-        # 3. Release all buttons in reverse order
+        # 3. Release all buttons in reverse order immediately (without delay)
         for action in reversed(actions):
             apply_action(action, False, do_update=True)
-            if delay_sec > 0:
-                time.sleep(delay_sec)
     finally:
         _combo_locks[sc_hex].release()
 
@@ -353,6 +353,9 @@ def run_interception():
                     if override_active:
                         with _state_lock:
                             active_keys.clear()
+                        # Safety: Wake up and release any combos waiting for a key release
+                        for ev in _combo_events.values():
+                            ev.set()
 
                 _key_states[sc_hex] = is_down
                 swallow = True
@@ -364,12 +367,17 @@ def run_interception():
 
                 if sc_hex in combo_cfg:
                     swallow = True
-                    if is_down and is_change:
-                        threading.Thread(
-                            target=execute_combo_sequence,
-                            args=(sc_hex, combo_cfg[sc_hex]),
-                            daemon=True
-                        ).start()
+                    if is_change:
+                        if is_down:
+                            _combo_events[sc_hex].clear()
+                            threading.Thread(
+                                target=execute_combo_sequence,
+                                args=(sc_hex, combo_cfg[sc_hex]),
+                                daemon=True
+                            ).start()
+                        else:
+                            # User released the key; trigger the thread to continue and release the sequence
+                            _combo_events[sc_hex].set()
 
                 elif sc_hex in key_profile:
                     swallow = True

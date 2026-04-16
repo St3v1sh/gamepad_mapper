@@ -24,7 +24,8 @@
       "0x2C": "XUSB_GAMEPAD_DPAD_DOWN",
       "0x39": "XUSB_GAMEPAD_RIGHT_SHOULDER",
       "0x3B": "XUSB_GAMEPAD_BACK",
-      "0x2F": "XUSB_GAMEPAD_DPAD_RIGHT"
+      "0x2F": "XUSB_GAMEPAD_DPAD_RIGHT",
+      "0x3A": "LEFT_TRIGGER"
     },
     "combos": {
       "0x02": ["XUSB_GAMEPAD_DPAD_RIGHT", "XUSB_GAMEPAD_A"],
