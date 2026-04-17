@@ -27,10 +27,22 @@
       "0x2F": "XUSB_GAMEPAD_DPAD_RIGHT"
     },
     "combos": {
-      "0x02": ["XUSB_GAMEPAD_DPAD_RIGHT", "XUSB_GAMEPAD_A"],
-      "0x03": ["XUSB_GAMEPAD_DPAD_RIGHT", "XUSB_GAMEPAD_X"],
-      "0x04": ["XUSB_GAMEPAD_DPAD_RIGHT", "XUSB_GAMEPAD_B"],
-      "0x05": ["XUSB_GAMEPAD_DPAD_RIGHT", "XUSB_GAMEPAD_Y"]
+      "0x02": [
+        "XUSB_GAMEPAD_DPAD_RIGHT",
+        "XUSB_GAMEPAD_A"
+      ],
+      "0x03": [
+        "XUSB_GAMEPAD_DPAD_RIGHT",
+        "XUSB_GAMEPAD_X"
+      ],
+      "0x04": [
+        "XUSB_GAMEPAD_DPAD_RIGHT",
+        "XUSB_GAMEPAD_B"
+      ],
+      "0x05": [
+        "XUSB_GAMEPAD_DPAD_RIGHT",
+        "XUSB_GAMEPAD_Y"
+      ]
     },
     "mouse_buttons": {
       "LEFT": "RIGHT_TRIGGER",
