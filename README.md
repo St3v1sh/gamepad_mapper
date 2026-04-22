@@ -9,6 +9,8 @@ It uses smoothing, non-linear response curves, and macro "combos".
 - **Smoothing:** Separate input and output smoothing to eliminate mouse jitter.
 - **Response Curves:** Adjustable exponent curves for fine-grained control or flick-heavy movement.
 - **Movement Emulation:** WASD inputs are converted into analog stick values with configurable smoothing to prevent menu skipping.
+- **Flexible Sticks:** Reassign which stick handles movement vs. the camera, or disable them by setting them to `null` to prevent WASD stick takeover entirely.
+- **Mouse Movement Override:** Assign a key (Defaults to Left CTRL) that temporarily translates the mouse to the movement stick instead of the camera stick while held.
 - **Combo Macros:** Map a single key to a sequence of controller inputs (useful for complex game abilities).
 - **Profile System:** Easily swap between different game settings using a JSON configuration.
 - **Bypass Mode:** Press **Right Alt** or **F12** to toggle the mapping on/off so you can use your PC normally without closing the script.
@@ -16,7 +18,7 @@ It uses smoothing, non-linear response curves, and macro "combos".
 ## Prerequisites
 
 1.  **ViGEmBus Driver:** [Download & Install](https://github.com/ViGEm/ViGEmBus/releases). This creates the virtual Xbox controller.
-2.  **Interception Driver:** [Download & Install](https://github.com/oblitum/Interception/releases/latest).
+2.  **Interception Driver:**[Download & Install](https://github.com/oblitum/Interception/releases/latest).
 3.  **Working in Python 3.11.5**
 4.  **Dependencies:**
     ```bash
@@ -43,7 +45,7 @@ It uses smoothing, non-linear response curves, and macro "combos".
 
 Each profile contains four sections:
 
-- **`settings`**: Controls sensitivity, deadzones, smoothing, and curves.
+- **`settings`**: Controls sensitivity, deadzones, smoothing, curves, configured sticks, and the mouse override binding.
 - **`key_profile`**: Maps keyboard hex codes to Xbox buttons (e.g., `"0x12": "XUSB_GAMEPAD_X"`).
 - **`mouse_buttons`**: Maps mouse clicks (LEFT, RIGHT, MIDDLE, X1, X2) to triggers or buttons.
 - **`combos`**: Defines a list of buttons to be pressed in sequence when a key is tapped.

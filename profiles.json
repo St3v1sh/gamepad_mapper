@@ -10,7 +10,10 @@
       "noise_filter_ms": 3.0,
       "combo_delay_ms": 35.0,
       "sens_x": 180,
-      "sens_y": 180
+      "sens_y": 180,
+      "movement_stick": "left",
+      "camera_stick": "right",
+      "mouse_override_key": "0x1D"
     },
     "key_profile": {
       "0x01": "XUSB_GAMEPAD_START",

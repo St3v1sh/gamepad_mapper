@@ -49,6 +49,13 @@ DEFAULT_SETTINGS = {
 
     "sens_x": 100,
     "sens_y": 100,
+
+    # Stick Configuration ("left", "right", or "null")
+    "movement_stick": "left",
+    "camera_stick": "right",
+
+    # Key used to temporarily override the movement stick with mouse movement
+    "mouse_override_key": "0x1D"  # Default: Left Ctrl
 }
 
 BTN_MAP = {
@@ -81,6 +88,7 @@ _state_lock = threading.Lock()
 _vgamepad_lock = threading.Lock()
 
 override_active = False
+mouse_movement_override = False
 accumulated_dx = 0.0
 accumulated_dy = 0.0
 last_mouse_time = time.perf_counter()
@@ -127,14 +135,6 @@ def _normalize_hex_keys(d: dict):
     return norm
 
 
-key_profile = _normalize_hex_keys(current_profile.get("key_profile", {}))
-combo_cfg = _normalize_hex_keys(current_profile.get("combos", {}))
-mouse_cfg = current_profile.get("mouse_buttons", {})
-move_cfg = current_profile.get("movement", {})
-
-print(f"Loaded profile: {profile_name}")
-
-
 def _format_hex(v):
     try:
         return f"0x{int(v, 16):02X}"
@@ -142,9 +142,24 @@ def _format_hex(v):
         return "0xFFFF"
 
 
-# Map string keys to string hexes to perfectly match sc_hex values
-MOVE_KEYS_MAP = {k: _format_hex(move_cfg.get(k, "0xFFFF")) for k in "WASD"}
-MOVE_HEX_SET = set(MOVE_KEYS_MAP.values())
+key_profile = _normalize_hex_keys(current_profile.get("key_profile", {}))
+combo_cfg = _normalize_hex_keys(current_profile.get("combos", {}))
+mouse_cfg = current_profile.get("mouse_buttons", {})
+move_cfg = current_profile.get("movement", {})
+
+print(f"Loaded profile: {profile_name}")
+
+MOUSE_OVERRIDE_KEY = _format_hex(SETTINGS.get("mouse_override_key", "0x1D"))
+MOVEMENT_STICK = SETTINGS.get("movement_stick", "left").lower()
+CAMERA_STICK = SETTINGS.get("camera_stick", "right").lower()
+
+# Map string keys to string hexes to perfectly match sc_hex values.
+if MOVEMENT_STICK == "null":
+    MOVE_KEYS_MAP = {}
+    MOVE_HEX_SET = set()
+else:
+    MOVE_KEYS_MAP = {k: _format_hex(move_cfg.get(k, "0xFFFF")) for k in "WASD"}
+    MOVE_HEX_SET = set(MOVE_KEYS_MAP.values())
 
 _last_button_states = {}
 
@@ -230,7 +245,7 @@ def controller_loop():
     current_stick_x = current_stick_y = 0.0
     remainder_x = remainder_y = 0.0  # Stores decimal loss from float->int conversion
 
-    # Left stick tracking variables
+    # WASD stick tracking variables
     current_ls_x = current_ls_y = 0.0
     last_time = time.perf_counter()
 
@@ -248,6 +263,7 @@ def controller_loop():
             raw_dx, raw_dy = accumulated_dx, accumulated_dy
             accumulated_dx = accumulated_dy = 0.0
             idle_secs = current_time - last_mouse_time
+            override_is_on = mouse_movement_override
 
             # Use the global mapping against the active_keys strings
             w_pressed = MOVE_KEYS_MAP.get('W') in active_keys
@@ -255,7 +271,7 @@ def controller_loop():
             s_pressed = MOVE_KEYS_MAP.get('S') in active_keys
             d_pressed = MOVE_KEYS_MAP.get('D') in active_keys
 
-        # --- Right Stick (Mouse) Logic ---
+        # --- Camera (Mouse) Logic ---
         inst_vel_x = raw_dx / dt if dt > 0 else 0
         inst_vel_y = raw_dy / dt if dt > 0 else 0
 
@@ -281,11 +297,15 @@ def controller_loop():
         current_stick_y = max(-32768.0, min(32767.0, current_stick_y))
 
         exact_x, exact_y = current_stick_x + remainder_x, current_stick_y + remainder_y
-        final_x = int(max(-32768, min(32767, exact_x)))
-        final_y = int(max(-32768, min(32767, exact_y)))
-        remainder_x, remainder_y = exact_x - final_x, exact_y - final_y
+        final_cam_x = int(max(-32768, min(32767, exact_x)))
+        final_cam_y = int(max(-32768, min(32767, exact_y)))
+        remainder_x, remainder_y = exact_x - final_cam_x, exact_y - final_cam_y
 
-        # --- Left Stick (Movement) Logic ---
+        # Match joystick space (mice Y is inverted relative to stick Y)
+        cam_out_x = final_cam_x
+        cam_out_y = -final_cam_y
+
+        # --- Movement (WASD) Logic ---
         target_ls_x = target_ls_y = 0.0
         if w_pressed:
             target_ls_y += 1.0
@@ -309,19 +329,49 @@ def controller_loop():
         current_ls_x += move_alpha * (target_ls_x - current_ls_x)
         current_ls_y += move_alpha * (target_ls_y - current_ls_y)
 
-        final_ls_x = int(current_ls_x * 32767)
-        final_ls_y = int(current_ls_y * 32767)
+        move_out_x = int(current_ls_x * 32767)
+        move_out_y = int(current_ls_y * 32767)
+
+        # --- Override Interception ---
+        if override_is_on:
+            move_out_x = cam_out_x
+            move_out_y = cam_out_y
+            cam_out_x = 0
+            cam_out_y = 0
+
+        # --- Map Values to Target Sticks ---
+        left_x = left_y = 0
+        right_x = right_y = 0
+
+        if MOVEMENT_STICK == "left":
+            left_x += move_out_x
+            left_y += move_out_y
+        elif MOVEMENT_STICK == "right":
+            right_x += move_out_x
+            right_y += move_out_y
+
+        if CAMERA_STICK == "left":
+            left_x += cam_out_x
+            left_y += cam_out_y
+        elif CAMERA_STICK == "right":
+            right_x += cam_out_x
+            right_y += cam_out_y
+
+        # Final Clamp
+        left_x = int(max(-32768, min(32767, left_x)))
+        left_y = int(max(-32768, min(32767, left_y)))
+        right_x = int(max(-32768, min(32767, right_x)))
+        right_y = int(max(-32768, min(32767, right_y)))
 
         # Output to gamepad
         with _vgamepad_lock:
-            # -final_y because mice and sticks use inverted Y mathematical signs
-            gamepad.right_joystick(x_value=final_x, y_value=-final_y)
-            gamepad.left_joystick(x_value=final_ls_x, y_value=final_ls_y)
+            gamepad.left_joystick(x_value=left_x, y_value=left_y)
+            gamepad.right_joystick(x_value=right_x, y_value=right_y)
             gamepad.update()
 
 
 def run_interception():
-    global override_active, accumulated_dx, accumulated_dy, last_mouse_time
+    global override_active, mouse_movement_override, accumulated_dx, accumulated_dy, last_mouse_time
 
     c = Interception()
     c.set_filter(Interception.is_keyboard, FilterKeyFlag.FILTER_KEY_ALL)
@@ -340,7 +390,7 @@ def run_interception():
         swallow = False
 
         if Interception.is_keyboard(device) and isinstance(stroke, KeyStroke):
-            sc, st = stroke.code, stroke.flags  # 'state' is now 'flags'
+            sc, st = stroke.code, stroke.flags
 
             is_e0 = bool(st & KeyFlag.KEY_E0)
             sc_hex = f"0x{'E0' if is_e0 else ''}{sc:02X}"
@@ -355,6 +405,7 @@ def run_interception():
                     if override_active:
                         with _state_lock:
                             active_keys.clear()
+                            mouse_movement_override = False
                         # Safety: Wake up and release any combos waiting for a key release
                         for ev in _combo_events.values():
                             ev.set()
@@ -367,7 +418,12 @@ def run_interception():
                 is_change = _key_states.get(sc_hex) != is_down
                 _key_states[sc_hex] = is_down
 
-                if sc_hex in combo_cfg:
+                if sc_hex == MOUSE_OVERRIDE_KEY:
+                    swallow = True
+                    with _state_lock:
+                        mouse_movement_override = is_down
+
+                elif sc_hex in combo_cfg:
                     swallow = True
                     if is_change:
                         if is_down:
